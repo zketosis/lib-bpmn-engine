@@ -7,6 +7,48 @@ import (
 	"github.com/nitram509/lib-bpmn-engine/pkg/bpmn_engine"
 )
 
+// getCurrentNodeInfo returns a string with information about the current state of the process,
+// focusing on the element ID if waiting on a timer or message.
+func getCurrentNodeInfo(bpmnEngine bpmn_engine.BpmnEngineState, instanceKey int64) string {
+	// Get basic instance information
+	instance := bpmnEngine.FindProcessInstance(instanceKey)
+	if instance == nil {
+		return fmt.Sprintf("instance-%d (not found)", instanceKey)
+	}
+
+	// Default info is the instance key
+	info := fmt.Sprintf("instance-%d", instanceKey)
+
+	// Check for timers
+	timers := bpmnEngine.GetTimersScheduled()
+	for _, timer := range timers {
+		if timer.ProcessInstanceKey == instanceKey {
+			// Return the ElementId of the timer event
+			return fmt.Sprintf("%s (Waiting at Timer: %s, due in %v)",
+				info,
+				timer.ElementId, // Use the ElementId here
+				time.Until(timer.DueAt).Round(time.Second))
+		}
+	}
+
+	// Check for message subscriptions
+	subs := bpmnEngine.GetMessageSubscriptions()
+	for _, sub := range subs {
+		if sub.ProcessInstanceKey == instanceKey {
+			// Return the ElementId of the message event
+			return fmt.Sprintf("%s (Waiting at Message Event: %s for message '%s')",
+				info,
+				sub.ElementId, // Use the ElementId here
+				sub.Name)      // Corrected field name from MessageName to Name
+		}
+	}
+
+	// If not waiting on a specific timer or message event known to the engine state,
+	// return the basic instance info. A more sophisticated approach might involve
+	// inspecting the instance's internal state if the API allowed.
+	return info
+}
+
 func main() {
 	bpmnEngine := bpmn_engine.New()
 
@@ -39,26 +81,40 @@ func main() {
 	for len(instanceKeys) > 0 {
 		activeInstances := []int64{}
 		for _, instanceKey := range instanceKeys {
-			// Retrieve the process instance using FindProcessInstance
 			instance := bpmnEngine.FindProcessInstance(instanceKey)
 			if instance == nil {
-				println(fmt.Sprintf("Error retrieving instance %d: instance not found", instanceKey))
+				// Instance might have completed between checks
 				continue
 			}
 			state := instance.GetState()
 			if state == bpmn_engine.Active {
-				println(fmt.Sprintf("tick. Process Instance ID: %d", instanceKey))
+				// Get the current node info, which now includes the element ID if waiting
+				nodeInfo := getCurrentNodeInfo(bpmnEngine, instanceKey)
+				println(fmt.Sprintf("tick. %s", nodeInfo)) // Print the detailed node info
 				_, err := bpmnEngine.RunOrContinueInstance(instanceKey)
 				if err != nil {
 					println(fmt.Sprintf("Error continuing instance %d: %v", instanceKey, err))
+					// Decide how to handle errors, e.g., remove the instance from monitoring
 				} else {
-					activeInstances = append(activeInstances, instanceKey)
+					// Check state again after attempting to continue
+					updatedInstance := bpmnEngine.FindProcessInstance(instanceKey)
+					if updatedInstance != nil && updatedInstance.GetState() == bpmn_engine.Active {
+						activeInstances = append(activeInstances, instanceKey)
+					} else if updatedInstance != nil {
+						println(fmt.Sprintf("Process Instance ID %d changed state to: %s", instanceKey, updatedInstance.GetState()))
+					} else {
+						println(fmt.Sprintf("Process Instance ID %d likely completed.", instanceKey))
+					}
 				}
 			} else {
-				println(fmt.Sprintf("Process Instance ID %d completed with state: %s", instanceKey, state))
+				// This case might be reached if the instance completed before the RunOrContinueInstance call
+				println(fmt.Sprintf("Process Instance ID %d already completed with state: %s", instanceKey, state))
 			}
 		}
 		instanceKeys = activeInstances
-		time.Sleep(2 * time.Second)
+		if len(instanceKeys) > 0 {
+			time.Sleep(2 * time.Second)
+		}
 	}
+	println("All process instances have completed.")
 }
