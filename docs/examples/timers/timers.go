@@ -1,32 +1,64 @@
 package main
 
 import (
-	"github.com/nitram509/lib-bpmn-engine/pkg/bpmn_engine"
+	"fmt"
 	"time"
+
+	"github.com/nitram509/lib-bpmn-engine/pkg/bpmn_engine"
 )
 
 func main() {
 	bpmnEngine := bpmn_engine.New()
-	process, err := bpmnEngine.LoadFromFile("timeout-example.bpmn")
-	if err != nil {
-		panic("file \"timeout-example.bpmn\" can't be read.")
+
+	// BPMN file names to load
+	bpmnFiles := []string{
+		"timeout-example1.bpmn",
+		"timeout-example2.bpmn",
+		"timeout-example3.bpmn",
 	}
-	// just some dummy handler to complete the tasks/jobs
+
+	// Just some dummy handler to complete the tasks/jobs
 	registerDummyTaskHandlers(&bpmnEngine)
 
-	instance, err := bpmnEngine.CreateAndRunInstance(process.ProcessKey, nil)
-	println(instance.GetState()) // still ACTIVE at this point
-
-	printScheduledTimerInformation(bpmnEngine.GetTimersScheduled()[0])
-
-	// sleep() for 2 seconds, before trying to continue the process instance
-	// this for-loop essentially will block until the process instance has completed OR an error occurred
-	for ; instance.GetState() == bpmn_engine.Active && err == nil; time.Sleep(2 * time.Second) {
-		println("tick.")
-		// by re-running, the engine will check for active timers and might continue execution,
-		// if timer.DueAt has passed
-		_, err = bpmnEngine.RunOrContinueInstance(instance.GetInstanceKey())
+	// Load three different BPMN files and start one process instance from each
+	instanceKeys := []int64{}
+	for _, file := range bpmnFiles {
+		process, err := bpmnEngine.LoadFromFile(file)
+		if err != nil {
+			panic(fmt.Sprintf("file %q can't be read.", file))
+		}
+		instance, err := bpmnEngine.CreateAndRunInstance(process.ProcessKey, nil)
+		if err != nil {
+			panic(fmt.Sprintf("failed to create and run process instance from file %q", file))
+		}
+		instanceKeys = append(instanceKeys, instance.GetInstanceKey())
+		println(fmt.Sprintf("Process Instance from file %q ID: %d", file, instance.GetInstanceKey()))
 	}
 
-	println(instance.GetState()) // finally completed
+	// Monitor all instances
+	for len(instanceKeys) > 0 {
+		activeInstances := []int64{}
+		for _, instanceKey := range instanceKeys {
+			// Retrieve the process instance using FindProcessInstance
+			instance := bpmnEngine.FindProcessInstance(instanceKey)
+			if instance == nil {
+				println(fmt.Sprintf("Error retrieving instance %d: instance not found", instanceKey))
+				continue
+			}
+			state := instance.GetState()
+			if state == bpmn_engine.Active {
+				println(fmt.Sprintf("tick. Process Instance ID: %d", instanceKey))
+				_, err := bpmnEngine.RunOrContinueInstance(instanceKey)
+				if err != nil {
+					println(fmt.Sprintf("Error continuing instance %d: %v", instanceKey, err))
+				} else {
+					activeInstances = append(activeInstances, instanceKey)
+				}
+			} else {
+				println(fmt.Sprintf("Process Instance ID %d completed with state: %s", instanceKey, state))
+			}
+		}
+		instanceKeys = activeInstances
+		time.Sleep(2 * time.Second)
+	}
 }

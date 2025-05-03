@@ -13,7 +13,7 @@ func main() {
 	bpmnEngine.RunOrContinueInstance(instance.GetInstanceKey())
 }
 
-var externalEvent = "none"
+var externalEvent = "user is done"
 
 func userTaskHandler() func(job bpmn_engine.ActivatedJob) {
 	return func(job bpmn_engine.ActivatedJob) {

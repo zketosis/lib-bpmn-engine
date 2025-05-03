@@ -1,0 +1,24 @@
+{
+  "name": "BPMN Engine DevContainer",
+  "image": "mcr.microsoft.com/devcontainers/go:1.23", // Use a Go development container
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+  },
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "go.toolsManagement.autoUpdate": true,
+        "go.useLanguageServer": true
+      },
+      "extensions": [
+        "golang.go",
+        "ms-azuretools.vscode-docker"
+      ]
+    }
+  },
+  "mounts": [
+    "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind"
+  ],
+  "postCreateCommand": "go mod tidy && go install",
+  "remoteUser": "vscode"
+}
